@@ -3,57 +3,59 @@ from typing import Protocol
 from fastapi import FastAPI
 from pydantic import BaseModel
 
+import datetime
+
 app = FastAPI()
-rd = redis.Redis(host="localhost", port=6379, db=0)
+rd = redis.Redis(host="localhost", password="pass-redis-stack",  port=6379, db=0)
 
 #Const
-PREFIX_DEVICE = 'devices_'
+PREFIX_User = 'Users_'
 PREFIX_CODES = 'codes_'
 
 #Models
-class DeviceBase(BaseModel):
-    """DeviceBase"""
-    device_id: str
+class UserBase(BaseModel):
+    """UserBase"""
+    user_id: str
 
-class Device(DeviceBase):
-    """Device class"""
-    key: str
+class User(UserBase):
+    """User class"""
+    shared_key: str
 
 class VerifyRequest(BaseModel):
     """Request for verify endpoint"""
-    device_id: str
+    user_id: str
     check_code: str
 
 #Services
 class IRepository(Protocol):
     """Interface de servicio Repository"""
-    def get_db(self, data:VerifyRequest|Device, prefix: str) -> bytes|None:
+    def get_db(self, data:VerifyRequest|User, prefix: str) -> bytes|None:
         """
         get data from  DB
         
         Parameters
         ----------
-        data: VerifyRequest|Device
-          objeto que contiene data como device_id y key para validar
+        data: VerifyRequest|User
+          objeto que contiene data como user_id y shared_key para validar
         prefix: str
-          prefijo que indica si buscar en device o code_validated
+          prefijo que indica si buscar en User o code_validated
 
         Returns
         -------
         bytes | None 
-          respuesta con datos o un valor None en caso de no encontrar key con data
+          respuesta con datos o un valor None en caso de no encontrar shared_key con data
         """
 
-    def set_db(self, data:VerifyRequest|Device, prefix: str) -> bool|None:
+    def set_db(self, data:VerifyRequest|User, prefix: str) -> bool|None:
         """
         Set data on DB
         
         Parameters
         ----------
-        data: VerifyRequest|Device
-          objeto que contiene data como device_id y key para validar
+        data: VerifyRequest|User
+          objeto que contiene data como user_id y shared_key para validar
         prefix: str
-          prefijo que indica si guardar en device o code_validated
+          prefijo que indica si guardar en User o code_validated
 
         Returns
         -------
@@ -65,22 +67,21 @@ class Repository(IRepository):
     """
     Clase que implementa IRepository
     """
-    def get_db(self, data:VerifyRequest|Device, prefix: str):
+    def get_db(self, data:VerifyRequest|User, prefix: str):
         """ get data from db"""
         sufix = '_' + data.check_code if prefix == PREFIX_CODES else ''
-        return rd.get(prefix + data.device_id +  sufix)
+        return rd.get(prefix + data.user_id +  sufix)
 
-    def set_db(self, data:VerifyRequest|Device, prefix: str):
+    def set_db(self, data:VerifyRequest|User, prefix: str):
         """Set data in DB"""
         sufix = '_' + data.check_code if prefix == PREFIX_CODES else ''
-        return rd.set(prefix + data.device_id + sufix, data.json(), ex=3600)
-
+        return rd.set(prefix + data.user_id + sufix, data.json(), ex=3600)
 
 class ITotp(Protocol):
     """Interface de servicio TOTP"""
-    def generate_key(self) -> str:
+    def generate_shared_key(self) -> str:
         """
-        crea un key en 32bits y lo retorno en formato string
+        crea un shared_key en 32bits y lo retorno en formato string
         """
 
     def check_totp_code(self, secret: str, code: str) -> bool:
@@ -102,15 +103,24 @@ class PytotpService(ITotp):
     """
     Clase que implementa servicios de TOTP
     """
-    def generate_key(self) -> str:
+    def generate_shared_key(self) -> str:
         return pyotp.random_base32()
 
     def check_totp_code(self, secret: str, code: str) -> bool:
         print('secrete is ',  secret )
+
+        diferencia_time = datetime.datetime.now() - datetime.timedelta(seconds=30)
+        time_before = datetime.datetime.timestamp(diferencia_time)
+
         totp = pyotp.TOTP(secret)
-        now = totp.now()
-        print("check_code:", code, "but code is: ", now)
-        return totp.verify(code)
+        current_totp = totp.now()
+        before_totp = totp.at(time_before)
+
+        print("code send is:", code)
+        print("and current code is: ", current_totp)
+        print("and 30 seconds before was ", before_totp)
+
+        return code in {current_totp, before_totp}
 
 #Controllers
 totp_service = PytotpService()
@@ -118,41 +128,41 @@ repository = Repository()
 @app.get("/api/healthchecker")
 def read_root():
     """healthchecker"""
-    return {"message": "Welcome to TOTP service"}
+    return {"message": "Welcome to PyTOTP service"}
 
 @app.post("/register/")
-async def create_device(device: DeviceBase):
-    """Controller for create new register and shared_key"""
-    key = totp_service.generate_key()
-    new_device = Device(
-        device_id = device.device_id,
-        key = key,
+async def create_User(user: UserBase):
+    """Controller for create new register and shared_shared_key"""
+    shared_key = totp_service.generate_shared_key()
+    new_user = User(
+        user_id = user.user_id,
+        shared_key = shared_key,
     )
-    repository.set_db(new_device, PREFIX_DEVICE)
-    code_for_app = pyotp.totp.TOTP(key).provisioning_uri(
-        name='totp@domain.com',
-        issuer_name='Secure App TOTP'
+    repository.set_db(new_user, PREFIX_User)
+    code_for_app = pyotp.totp.TOTP(shared_key).provisioning_uri(
+        name='pytotp@domain.com',
+        issuer_name='Sample secure App TOTP'
       )
     print(code_for_app)
-    return device
+    return {"shared_shared_key" : new_user.shared_key }
 
 @app.post("/verify/")
 async def check_code(verify: VerifyRequest):
     """Controller for verify code check"""
-    data_device = repository.get_db(verify, PREFIX_DEVICE)
-    print(data_device)
-    if data_device:
-        data = json.loads(data_device)
+    data_user = repository.get_db(verify, PREFIX_User)
+    print(data_user)
+    if data_user:
+        data = json.loads(data_user)
         print(data)
-        secret = data['key']
+        secret = data['shared_key']
         if totp_service.check_totp_code( secret , verify.check_code):
             code = repository.get_db(verify, PREFIX_CODES)
             if not code:
                 repository.set_db(verify, PREFIX_CODES)
                 return {"is_true": True}
             else:
-                return {"is_true": False, "mesagge": "codigo ya fue utilizado"}
+                return {"is_true": False, "mesagge": "code has already been used"}
         else:
             return {"is_true": False}
     else:
-        return {"is_true": False, "mesagge": "device_id no existe"}
+        return {"is_true": False, "mesagge": "user_id does not exist"}
