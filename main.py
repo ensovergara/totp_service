@@ -5,9 +5,19 @@ from pydantic import BaseModel
 
 import datetime
 
-app = FastAPI()
-rd = redis.Redis(host="localhost", password="pass-redis-stack",  port=6379, db=0)
+import os
 
+redis_db = os.environ.get('REDIS_DB', 0)
+redis_host = os.environ.get('REDIS_HOST', "db")
+redis_port = os.environ.get('REDIS_PORT', 6379)
+redis_password = os.environ.get('REDIS_PASSWORD', "pass-redis-stack")
+
+app = FastAPI()
+
+rd = redis.Redis(host=redis_host,
+                 password=redis_password,
+                 port=redis_port,
+                 db=redis_db)
 #Const
 PREFIX_User = 'Users_'
 PREFIX_CODES = 'codes_'
@@ -81,7 +91,7 @@ class ITotp(Protocol):
     """Interface de servicio TOTP"""
     def generate_shared_key(self) -> str:
         """
-        crea un shared_key en 32bits y lo retorno en formato string
+        crea un shared_key en 32bits y lo retorna en formato string
         """
 
     def check_totp_code(self, secret: str, code: str) -> bool:
