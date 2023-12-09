@@ -7,13 +7,10 @@ services:
       - 8001:8001
     environment:
       REDIS_ARGS: "--requirepass pass-redis-stack"
-# docker run -e REDIS_ARGS="--requirepass pass-redis-stack" -d --name redis-stack -p 6379:6379 -p 8001:8001 redis/redis-stack:latest
   back:
     env_file: .env
     build:
-      #context: ./backend
       dockerfile: Dockerfile
-    #command: python3 manage.py migrate --nopinput
     links:
       - db:db  
     depends_on:
